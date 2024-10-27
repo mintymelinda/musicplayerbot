@@ -13,7 +13,7 @@ const PREDICTION_TIME_WINDOW = 60;
 var allow_live = false;
 var playing = false;
 var prediction_active = false;
-var prediction_scheduled = false;
+var allow_predictions = true;
 
 var player;
 var session_id;
@@ -108,9 +108,7 @@ var custom_rewards = [
     () => {
       if (playing) {
         if (prediction_active) {
-          patchPrediction(active_prediction_id, 'CANCELED');
-          prediction_active = false;
-          prediction_scheduled = false;
+          cancelPrediction();
         }
 
         if (haveVideosToPlay()) {
@@ -230,7 +228,7 @@ function onPlayerStateChange(event) {
 }
 
 function canStartPrediction() {
-  return !prediction_active && !prediction_scheduled && haveVideosForPrediction() && !getVideoList().find(x => x.playNext);
+  return allow_predictions && !prediction_active && haveVideosForPrediction() && !getVideoList().find(x => x.playNext);
 }
 
 function update() {
@@ -260,21 +258,19 @@ function loadNextVideo() {
 }
 
 function waitForPrediction(duration) {
-  prediction_scheduled = true;
+  prediction_active = true;
   var waitForPrediction = Math.round((duration - PREDICTION_TIME_WINDOW) * 1000);
   console.log(`prediction starting in: ${waitForPrediction / 1000}`);
   setTimeout(() => startPrediction(), waitForPrediction);
 }
 
 async function startPrediction() {
-  prediction_active = true;
-  prediction_scheduled = false;
   var pollEntries = getVideoList().sort(() => 0.5 - Math.random()).slice(0, MAX_ENTRIES_FOR_PREDICTION);
   var outcomes = pollEntries.map(v => new Object({ title: v.title.substring(0, 25) }));
 
   // should never happen but ya-know
   if (outcomes.length < 2) {
-    prediction_active = false;
+    releasePredictionLock()
     console.log('not enough entries');
     return;
   }
@@ -303,31 +299,51 @@ async function startPrediction() {
   })).catch((reason) => {
     // outcomes contained one or more invalid words, or something else went wrong
     console.log(reason);
-    prediction_active = false;
+    releasePredictionLock();
   });
+}
+
+function cancelPrediction() {
+  patchPrediction(active_prediction_id, 'CANCELED');
+  releasePredictionLock();
+}
+
+function resolvePrediction(winner) {
+  patchPrediction(event.id, 'RESOLVED', winner);
+
+  var next = getVideoList().find(video => video.outcome_id === winner);
+  Object.defineProperty(next, 'playNext', {
+    writable: true,
+    configurable: true,
+    value: true
+  });
+
+  releasePredictionLock();
+}
+
+function releasePredictionLock() {
+  prediction_active = false;
 }
 
 function processPredictionLock(event) {
   if (event.id === active_prediction_id) {
     var outcomes = event.outcomes;
-    outcomes.sort((a, b) => {
-      if (a.channel_points === b.channel_points)
-        return a.users - b.users;
-      else
-        return a.channel_points - b.channel_points;
-    }).reverse();
 
-    var winner = outcomes[0].id;
+    var total = 0;
+    outcomes.forEach(x => total = total + x.channel_points);
 
-    patchPrediction(event.id, 'RESOLVED', winner);
+    if (total = 0) {
+      cancelPrediction();
+    } else {
+      outcomes.sort((a, b) => {
+        if (a.channel_points === b.channel_points)
+          return a.users - b.users;
+        else
+          return a.channel_points - b.channel_points;
+      }).reverse();
 
-    var next = getVideoList().find(video => video.outcome_id === winner);
-    Object.defineProperty(next, 'playNext', {
-      writable: true,
-      configurable: true,
-      value: true
-    });
-    prediction_active = false;
+      resolvePrediction(outcomes[0].id);
+    }
   }
 }
 
