@@ -34,7 +34,6 @@ function haveVideosForPrediction() {
   return getVideoList().length >= 2;
 }
 
-
 class YoutubeData {
   constructor(ytData) {
     this.videoId = ytData.id;
