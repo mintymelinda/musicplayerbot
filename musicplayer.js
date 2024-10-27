@@ -7,13 +7,16 @@ const headers = {
 const SONG_REDEMPTION_PROMPT = 'Enter youtube id or title + artist name';
 const SONG_REDEMPTION_TITLE = "Add a song request";
 const SONG_REDEMPTION_COST = 10;
-const MAX_ENTRIES_FOR_PREDICTION = 10;
-const PREDICTION_TIME_WINDOW = 60;
 
-var allow_live = false;
 var playing = false;
 var prediction_active = false;
+
+// configuration options
+var allow_live = false;
+var max_entries_for_prediction = 10;
 var allow_predictions = true;
+var prediction_time_window = 60;
+var prediction_grace_period = 2;
 
 var player;
 var session_id;
@@ -235,7 +238,7 @@ function update() {
   if (playing) {
     if (canStartPrediction()) {
       var time_remaining = player.getDuration() - player.getCurrentTime();
-      if (time_remaining > PREDICTION_TIME_WINDOW) {
+      if (time_remaining > prediction_time_window) {
         waitForPrediction(time_remaining);
       }
     }
@@ -259,13 +262,13 @@ function loadNextVideo() {
 
 function waitForPrediction(duration) {
   prediction_active = true;
-  var waitForPrediction = Math.round((duration - PREDICTION_TIME_WINDOW) * 1000);
+  var waitForPrediction = Math.round((duration - prediction_time_window) * 1000);
   console.log(`prediction starting in: ${waitForPrediction / 1000}`);
   setTimeout(() => startPrediction(), waitForPrediction);
 }
 
 async function startPrediction() {
-  var pollEntries = getVideoList().sort(() => 0.5 - Math.random()).slice(0, MAX_ENTRIES_FOR_PREDICTION);
+  var pollEntries = getVideoList().sort(() => 0.5 - Math.random()).slice(0, max_entries_for_prediction);
   var outcomes = pollEntries.map(v => new Object({ title: v.title.substring(0, 25) }));
 
   // should never happen but ya-know
@@ -279,9 +282,9 @@ async function startPrediction() {
     method: 'POST',
     body: JSON.stringify({
       broadcaster_id: BROADCASTER_USER_ID,
-      title: 'Vote on the next song!',
+      title: `Vote on the next song!`,
       outcomes: outcomes,
-      prediction_window: PREDICTION_TIME_WINDOW - 2
+      prediction_window: prediction_time_window - prediction_grace_period
     }),
     headers: headers
   }).then(r => r.json().then(data => {
