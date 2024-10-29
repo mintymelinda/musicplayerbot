@@ -25,6 +25,22 @@ var active_prediction_id;
 var videos = {};
 var queries = new Map();
 
+function shuffle(array) {
+  let currentIndex = array.length;
+
+  // While there remain elements to shuffle...
+  while (currentIndex != 0) {
+
+    // Pick a remaining element...
+    let randomIndex = Math.floor(Math.random() * currentIndex);
+    currentIndex--;
+
+    // And swap it with the current element.
+    [array[currentIndex], array[randomIndex]] = [
+      array[randomIndex], array[currentIndex]];
+  }
+}
+
 function getVideoList() {
   return Object.values(videos);
 }
@@ -268,7 +284,7 @@ function waitForPrediction(duration) {
 }
 
 async function startPrediction() {
-  var pollEntries = getVideoList().sort(() => 0.5 - Math.random()).slice(0, max_entries_for_prediction);
+  var pollEntries = shuffle(getVideoList()).slice(0, max_entries_for_prediction);
   var outcomes = pollEntries.map(v => new Object({ title: v.title.substring(0, 25) }));
 
   // should never happen but ya-know
