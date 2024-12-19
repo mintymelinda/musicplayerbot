@@ -329,6 +329,7 @@ function processPredictionLock(event) {
   if (event.id === active_prediction_id) {
     active_prediction_id = undefined;
     var outcomes = event.outcomes;
+
     outcomes.sort((a, b) => {
       if (a.channel_points === b.channel_points)
         return a.users - b.users;
@@ -336,16 +337,18 @@ function processPredictionLock(event) {
         return a.channel_points - b.channel_points;
     }).reverse();
 
+    if (outcomes[0].channel_points === 0) {
+      patchPrediction(event.id, 'CANCELED');
+    } else {
     var winner = outcomes[0].id;
-
     patchPrediction(event.id, 'RESOLVED', winner);
-
     var next = getVideoList().find(video => video.outcome_id === winner);
     Object.defineProperty(next, 'playNext', {
       writable: true,
       configurable: true,
       value: true
     });
+    }
   }
 }
 
