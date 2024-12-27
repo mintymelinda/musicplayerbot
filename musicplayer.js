@@ -16,7 +16,7 @@ var queries = new Map();
 
 const SONG_REDEMPTION_PROMPT = 'Enter youtube id or song / artist name';
 const SONG_REDEMPTION_TITLE = "Add a song request";
-const SONG_REDEMPTION_COST = 10;
+const SONG_REDEMPTION_COST = 1;
 
 class CustomRewards {
   constructor(rewards) {
@@ -87,7 +87,7 @@ var custom_rewards = new CustomRewards([
         }
       }
     }),
-  new CustomReward('Skip Song', 5000, false, undefined, true,
+  new CustomReward('Skip Song', 10000, false, undefined, false,
     () => {
       if (playing) {
         if (getVideoList().length > 0) {
@@ -133,7 +133,7 @@ class YoutubeData {
   }
 
   isValid() {
-    return this.viewCount > 1000 && this.liveBroadcastContent === "none";
+    return this.viewCount > 100 && this.liveBroadcastContent === "none";
   }
 }
 
@@ -148,8 +148,8 @@ class VideoRequest {
 
 async function onYouTubeIframeAPIReady() {
   player = new YT.Player('player', {
-    height: '1080',
-    width: '1920',
+    height: '720',
+    width: '1280',
     videoId: '',
     playerVars: {
       'autoplay': 0,
@@ -158,7 +158,8 @@ async function onYouTubeIframeAPIReady() {
       'rel': 0
     },
     events: {
-      'onStateChange': onPlayerStateChange
+      'onStateChange': onPlayerStateChange,
+      'onReady': onPlayerReady
     }
   });
   await custom_rewards.createChannelPointRedeems();
@@ -234,6 +235,14 @@ function onPlayerStateChange(event) {
   if (event.data === YT.PlayerState.PLAYING) {
     playing = true;
   }
+
+  if (event.data == YT.PlayerState.BUFFERING) {
+    event.target.setPlaybackQuality('small');
+  }
+}
+
+function onPlayerReady(event) {
+  event.target.setPlaybackQuality('small');
 }
 
 function getVideoList() {
@@ -242,25 +251,31 @@ function getVideoList() {
 
 // this is the worse thing ever written
 function update() {
-  if (!live) {
-    if (!playing && getVideoList().length > 0 && (active_prediction_id === -1 || !active_prediction_id)) {
-      loadNextVideo();
-    } else if (!active_prediction_id && playing && getVideoList().length >= 2) {
-      var time_remaining = player.getDuration() - player.getCurrentTime();
-      if (time_remaining > PREDICTION_TIME_WINDOW) {
-        waitForPrediction(time_remaining);
-      } else if (!live) {
-        for (var v of getVideoList()) {
-          time_remaining += v.duration;
-          var index = getVideoList().indexOf(v);
-          if (time_remaining > PREDICTION_TIME_WINDOW && getVideoList().length - index >= 2) {
-            waitForPrediction(time_remaining);
-            break;
-          }
-        }
-      }
-    }
+  // if (!live) {
+  // && (active_prediction_id === -1 || !active_prediction_id)
+  if (!playing && getVideoList().length > 0) {
+    loadNextVideo();
   }
+  // else if (!active_prediction_id && playing && getVideoList().length >= 2) {
+  //   var time_remaining = player.getDuration() - player.getCurrentTime();
+  //   if (time_remaining > PREDICTION_TIME_WINDOW) {
+  //     waitForPrediction(time_remaining);
+  //   } else if (!live) {
+  //     for (var v of getVideoList()) {
+  //       time_remaining += v.duration;
+  //       var index = getVideoList().indexOf(v);
+  //       // TODO: Don't wait for prediction once we know a prediction is possible,
+  //       // wait until time remaining is the prediction window,
+  //       // then just start the prediction
+
+  //       if (time_remaining > PREDICTION_TIME_WINDOW && getVideoList().length - index >= 2) {
+  //         waitForPrediction(time_remaining);
+  //         break;
+  //       }
+  //     }
+  //   }
+  // }
+  // }
 
   setTimeout(() => update(), 900);
 }
@@ -284,7 +299,7 @@ function waitForPrediction(duration) {
 }
 
 async function startPrediction() {
-  var pollEntries = getVideoList().sort(() => 0.5 - Math.random()).slice(0,10);
+  var pollEntries = getVideoList().sort(() => 0.5 - Math.random()).slice(0, 10);
   var outcomes = pollEntries.map(v => new Object({ title: v.ytData.title.substring(0, 25) }));
 
   if (outcomes.length < 2) {
@@ -340,14 +355,14 @@ function processPredictionLock(event) {
     if (outcomes[0].channel_points === 0) {
       patchPrediction(event.id, 'CANCELED');
     } else {
-    var winner = outcomes[0].id;
-    patchPrediction(event.id, 'RESOLVED', winner);
-    var next = getVideoList().find(video => video.outcome_id === winner);
-    Object.defineProperty(next, 'playNext', {
-      writable: true,
-      configurable: true,
-      value: true
-    });
+      var winner = outcomes[0].id;
+      patchPrediction(event.id, 'RESOLVED', winner);
+      var next = getVideoList().find(video => video.outcome_id === winner);
+      Object.defineProperty(next, 'playNext', {
+        writable: true,
+        configurable: true,
+        value: true
+      });
     }
   }
 }
