@@ -4,19 +4,21 @@ let headers = {
   'Content-Type': 'application/json'
 }
 
-var live = false;
-var player;
 var session_id;
 var videos = {};
-var active_prediction_id;
 var player;
 var playing = false;
-var PREDICTION_TIME_WINDOW = 60;
-var queries = new Map();
+var MIN_VIEW_COUNT = 1;
+var vetoCount = new Set()
 
 const SONG_REDEMPTION_PROMPT = 'Enter youtube id or song / artist name';
 const SONG_REDEMPTION_TITLE = "Add a song request";
-const SONG_REDEMPTION_COST = 1;
+const SONG_REDEMPTION_COST = 10;
+const SKIP_COST = 10000;
+const SNOW_COST = 10;
+const QUEUE_COST = 10;
+const VETO_THRESHOLD = 3;
+const VETO_COST = 10;
 
 class CustomRewards {
   constructor(rewards) {
@@ -73,8 +75,7 @@ class CustomReward {
 var custom_rewards = new CustomRewards([
   new CustomReward(SONG_REDEMPTION_TITLE, SONG_REDEMPTION_COST, true, SONG_REDEMPTION_PROMPT, true,
     async (event) => {
-      var ytData = queries.get(event.user_input) ?? await searchYouTube(event.user_input);
-      queries.set(event.user_input, ytData);
+      var ytData = await searchYouTube(event.user_input);
       for (var data of ytData) {
         if (data.isValid()) {
           var videoRequest = new VideoRequest(event, data);
@@ -87,29 +88,77 @@ var custom_rewards = new CustomRewards([
         }
       }
     }),
-  new CustomReward('Skip Song', 10000, false, undefined, false,
+  new CustomReward('Skip Song', SKIP_COST, false, undefined, false, skipSong),
+  new CustomReward('Get current song', SNOW_COST, false, undefined, false,
     () => {
       if (playing) {
+        sendMessage(`${player.getVideoData().title} - youtu.be/${player.getVideoData().video_id}`)
+      } else {
+        sendMessage(`Nothing playing samusShrug`)
+      }
+    }
+  ),
+  new CustomReward('Queue length', QUEUE_COST, false, undefined, false,
+    () => {
+      if (playing) {
+        duration = player.getDuration() - player.getCurrentTime()
+        getVideoList().forEach(x => duration = duration + x.ytData.duration)
+        message = `There are ${getVideoList().length} songs in the queue [${durationString(duration)}]`
+
         if (getVideoList().length > 0) {
-          loadNextVideo();
+          message = message + ` Next song -> ${getVideoList()[0].ytData.title} [starts in ${durationString(player.getDuration() - player.getCurrentTime())}]`
+        }
+        sendMessage(message)
+      } else {
+        sendMessage(`Nothing in queue samusShrug`)
+      }
+    }
+  ),
+  new CustomReward('Vote to Skip', VETO_COST, false, undefined, false,
+    (event) => {
+      if (playing) {
+        if (vetoCount.has(event.user_id)) {
+          sendMessage(`${event.user_name} has already voted to skip.`)
         } else {
-          player.stopVideo();
+          vetoCount.add(event.user_id)
+
+          if (vetoCount.size >= VETO_THRESHOLD) {
+            skipSong()
+          } else {
+            sendMessage(`${vetoCount.size} out of ${VETO_THRESHOLD} needed to skip`)
+          }
         }
-        if (active_prediction_id && active_prediction_id !== -1) {
-          patchPrediction(active_prediction_id, 'CANCELED', undefined);
-        }
-        active_prediction_id = undefined;
+      } else {
+        sendMessage(`Nothing to skip samusShrug`)
       }
     }
   )
 ]);
+
+function durationString(duration) {
+  return `${(duration / 60).toFixed()}:${(duration % 60).toFixed().toString().padStart(2, '0')}`
+}
+
+function skipSong() {
+  if (playing) {
+    if (getVideoList().length > 0) {
+      loadNextVideo();
+    } else {
+      player.stopVideo();
+    }
+    vetoCount.clear()
+    sendMessage(`Successfully skipped samusSmelly`)
+  } else {
+    sendMessage(`Nothing playing samusShrug`)
+  }
+}
 
 class YoutubeData {
   constructor(ytData) {
     this.videoId = ytData.id;
     this.title = ytData.snippet.title;
     this.thumbnail = ytData.snippet.thumbnails.standard;
-    this.duration = ytData.snippet.liveBroadcastContent ? undefined : this.YTDurationToSeconds(ytData.contentDetails.duration);
+    this.duration = this.YTDurationToSeconds(ytData.contentDetails.duration);
     this.licensedContent = ytData.contentDetails.licensedContent;
     this.viewCount = ytData.statistics.viewCount;
     this.liveBroadcastContent = ytData.snippet.liveBroadcastContent;
@@ -133,7 +182,7 @@ class YoutubeData {
   }
 
   isValid() {
-    return this.viewCount > 100 && this.liveBroadcastContent === "none";
+    return this.viewCount > MIN_VIEW_COUNT && this.liveBroadcastContent === "none";
   }
 }
 
@@ -183,6 +232,18 @@ async function subscribeToEvent(type, condition) {
   }).then(r => r.json().then(x => x.data[0].id));
 }
 
+async function sendMessage(text) {
+  await fetch('https://api.twitch.tv/helix/chat/messages', {
+    method: 'POST',
+    body: JSON.stringify({
+      broadcaster_id: BROADCASTER_USER_ID,
+      sender_id: BROADCASTER_USER_ID,
+      message: text
+    }),
+    headers: headers
+  });
+}
+
 async function searchYouTube(query) {
   var results = [];
 
@@ -211,6 +272,10 @@ async function searchYouTube(query) {
     }
   }
 
+  if (results.length == 0) {
+    sendMessage(`Failed to find song for query: ${query}`)
+  }
+
   return results;
 }
 
@@ -229,7 +294,6 @@ async function youtubeQuery(videoId) {
 function onPlayerStateChange(event) {
   if (event.data === YT.PlayerState.ENDED || event.data === YT.PlayerState.STOPPED || event.data === YT.PlayerState.CUED) {
     playing = false;
-    live = false;
   }
 
   if (event.data === YT.PlayerState.PLAYING) {
@@ -249,134 +313,24 @@ function getVideoList() {
   return Object.values(videos);
 }
 
-// this is the worse thing ever written
 function update() {
-  // if (!live) {
-  // && (active_prediction_id === -1 || !active_prediction_id)
   if (!playing && getVideoList().length > 0) {
     loadNextVideo();
+    vetoCount.clear()
   }
-  // else if (!active_prediction_id && playing && getVideoList().length >= 2) {
-  //   var time_remaining = player.getDuration() - player.getCurrentTime();
-  //   if (time_remaining > PREDICTION_TIME_WINDOW) {
-  //     waitForPrediction(time_remaining);
-  //   } else if (!live) {
-  //     for (var v of getVideoList()) {
-  //       time_remaining += v.duration;
-  //       var index = getVideoList().indexOf(v);
-  //       // TODO: Don't wait for prediction once we know a prediction is possible,
-  //       // wait until time remaining is the prediction window,
-  //       // then just start the prediction
-
-  //       if (time_remaining > PREDICTION_TIME_WINDOW && getVideoList().length - index >= 2) {
-  //         waitForPrediction(time_remaining);
-  //         break;
-  //       }
-  //     }
-  //   }
-  // }
-  // }
 
   setTimeout(() => update(), 900);
 }
 
 function loadNextVideo() {
-  var video = getVideoList().find(x => x?.playNext) ?? getVideoList()[0];
+  var video = getVideoList()[0];
 
-  console.log(`playNext: ${video.playNext} : ${video.ytData.videoId}`);
+  console.log(`${video.ytData.videoId}`);
   player.loadVideoById(video.ytData.videoId);
   player.playVideo();
   delete videos[video.id];
-  live = video.ytData.liveBroadcastContent === "none" ? false : true;
+
   console.log(videos);
-}
-
-function waitForPrediction(duration) {
-  active_prediction_id = -1;
-  var waitForPrediction = Math.round((duration - PREDICTION_TIME_WINDOW) * 1000);
-  console.log(`prediction starting in: ${waitForPrediction / 1000}`);
-  setTimeout(() => startPrediction(), waitForPrediction);
-}
-
-async function startPrediction() {
-  var pollEntries = getVideoList().sort(() => 0.5 - Math.random()).slice(0, 10);
-  var outcomes = pollEntries.map(v => new Object({ title: v.ytData.title.substring(0, 25) }));
-
-  if (outcomes.length < 2) {
-    active_prediction_id = undefined;
-    return 'not enough entries';
-  }
-
-  fetch('https://api.twitch.tv/helix/predictions', {
-    method: 'POST',
-    body: JSON.stringify({
-      broadcaster_id: BROADCASTER_USER_ID,
-      title: 'Vote on the next song!',
-      outcomes: outcomes,
-      prediction_window: PREDICTION_TIME_WINDOW - 2
-    }),
-    headers: headers
-  }).then(r => r.json().then(data => {
-    if (data.data.length > 0) {
-      var prediction = data.data[0];
-      active_prediction_id = prediction.id;
-      for (var i = 0; i < prediction.outcomes.length; i++) {
-        Object.defineProperty(pollEntries[i], 'outcome_id', {
-          writable: true,
-          configurable: true,
-          value: prediction.outcomes[i].id
-        });
-
-        Object.defineProperty(pollEntries[i], 'prediction_id', {
-          writable: true,
-          configurable: true,
-          value: prediction.id
-        });
-      }
-    }
-  })).catch((reason) => {
-    console.log(reason);
-    active_prediction_id = undefined;
-  });
-}
-
-function processPredictionLock(event) {
-  if (event.id === active_prediction_id) {
-    active_prediction_id = undefined;
-    var outcomes = event.outcomes;
-
-    outcomes.sort((a, b) => {
-      if (a.channel_points === b.channel_points)
-        return a.users - b.users;
-      else
-        return a.channel_points - b.channel_points;
-    }).reverse();
-
-    if (outcomes[0].channel_points === 0) {
-      patchPrediction(event.id, 'CANCELED');
-    } else {
-      var winner = outcomes[0].id;
-      patchPrediction(event.id, 'RESOLVED', winner);
-      var next = getVideoList().find(video => video.outcome_id === winner);
-      Object.defineProperty(next, 'playNext', {
-        writable: true,
-        configurable: true,
-        value: true
-      });
-    }
-  }
-}
-
-function patchPrediction(id, status, winner) {
-  fetch(`https://api.twitch.tv/helix/predictions?` + new URLSearchParams({
-    broadcaster_id: BROADCASTER_USER_ID,
-    id: id,
-    status: status,
-    winning_outcome_id: winner
-  }), {
-    method: 'PATCH',
-    headers: headers
-  });
 }
 
 async function getWebSocket() {
@@ -392,7 +346,7 @@ async function getWebSocket() {
             reward_id: redeem.id
           });
         }
-        subscribeToEvent('channel.prediction.lock', { BROADCASTER_USER_ID: BROADCASTER_USER_ID });
+        sendMessage('YouTube bot connected')
         break;
       case 'notification':
         console.log(data);
@@ -400,9 +354,6 @@ async function getWebSocket() {
           case 'channel.channel_points_custom_reward_redemption.add':
             var redeem = custom_rewards.rewards.find(x => x.id == data.payload.event.reward.id);
             await redeem?.response(data.payload.event);
-            break;
-          case 'channel.prediction.lock':
-            processPredictionLock(data.payload.event);
             break;
         }
         break;
