@@ -132,6 +132,15 @@ var custom_rewards = new CustomRewards([
         sendMessage(`Nothing to skip samusShrug`)
       }
     }
+  ),
+  new CustomReward('Show Video', 500, false, undefined, false,
+    (event) => {
+      if (playing) {
+        showVideo()
+      } else {
+        sendMessage(`Nothing playing samusShrug`)
+      }
+    }
   )
 ]);
 
@@ -213,6 +222,7 @@ async function onYouTubeIframeAPIReady() {
   });
   await custom_rewards.createChannelPointRedeems();
   getWebSocket();
+  hideVideo()
   update();
 }
 
@@ -291,9 +301,18 @@ async function youtubeQuery(videoId) {
   return data;
 }
 
+function showVideo() {
+  document.getElementById("player").style.display = "block"
+}
+
+function hideVideo() {
+  document.getElementById("player").style.display = "none"
+}
+
 function onPlayerStateChange(event) {
   if (event.data === YT.PlayerState.ENDED || event.data === YT.PlayerState.STOPPED || event.data === YT.PlayerState.CUED) {
     playing = false;
+    hideVideo()
   }
 
   if (event.data === YT.PlayerState.PLAYING) {
