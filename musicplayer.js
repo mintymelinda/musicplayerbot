@@ -128,8 +128,22 @@ var custom_rewards = new CustomRewards([
     }),
   new CustomReward('Quartz forgot to make it a video', 500, false, undefined, true,
     async (event) => {
-        showVideo()
+      showVideo()
     }),
+  new CustomReward('Volume UP', 30, false, "Mindy it's too QUIET please turn it up", true, () => change_volume(true)),
+  new CustomReward('Volume DOWN', 30, false, "Mindy it's too LOUD please turn it down", true, () => change_volume(false))
+]);
+
+function change_volume(up) {
+  var volume = player.getVolume()
+  if (up)
+    volume = Math.min(100, volume + 5)
+  else
+    volume = Math.max(0, volume - 5)
+
+  player.setVolume(volume)
+  sendMessage("YouTube volume is " + volume + "%")
+}
 
 async function playVideo(event, show) {
   var ytData = await searchYouTube(event.user_input);
