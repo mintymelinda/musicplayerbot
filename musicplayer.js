@@ -75,18 +75,7 @@ class CustomReward {
 var custom_rewards = new CustomRewards([
   new CustomReward(SONG_REDEMPTION_TITLE, SONG_REDEMPTION_COST, true, SONG_REDEMPTION_PROMPT, true,
     async (event) => {
-      var ytData = await searchYouTube(event.user_input);
-      for (var data of ytData) {
-        if (data.isValid()) {
-          var videoRequest = new VideoRequest(event, data);
-          Object.defineProperty(videos, videoRequest.id, {
-            enumerable: true,
-            configurable: true,
-            value: videoRequest
-          });
-          break;
-        }
-      }
+      playVideo(event, false)
     }),
   new CustomReward('Skip Song', SKIP_COST, false, undefined, false, skipSong),
   new CustomReward('Get current song', SNOW_COST, false, undefined, false,
@@ -133,16 +122,29 @@ var custom_rewards = new CustomRewards([
       }
     }
   ),
-  new CustomReward('Show Video', 500, false, undefined, false,
-    (event) => {
-      if (playing) {
+  new CustomReward('Song request with video', 500, true, undefined, true,
+    async (event) => {
+      playVideo(event, true)
+    }),
+  new CustomReward('Quartz forgot to make it a video', 500, false, undefined, true,
+    async (event) => {
         showVideo()
-      } else {
-        sendMessage(`Nothing playing samusShrug`)
-      }
+    }),
+
+async function playVideo(event, show) {
+  var ytData = await searchYouTube(event.user_input);
+  for (var data of ytData) {
+    if (data.isValid()) {
+      var videoRequest = new VideoRequest(event, data, show);
+      Object.defineProperty(videos, videoRequest.id, {
+        enumerable: true,
+        configurable: true,
+        value: videoRequest
+      });
+      break;
     }
-  )
-]);
+  }
+}
 
 function durationString(duration) {
   return `${(duration / 60).toFixed()}:${(duration % 60).toFixed().toString().padStart(2, '0')}`
@@ -196,11 +198,12 @@ class YoutubeData {
 }
 
 class VideoRequest {
-  constructor(event, ytData) {
+  constructor(event, ytData, show) {
     this.id = event.id;
     this.rewardId = event.reward.id;
     this.redeemedAt = event.redeemed_at;
     this.ytData = ytData;
+    this.show = show;
   }
 }
 
@@ -347,6 +350,9 @@ function loadNextVideo() {
   console.log(`${video.ytData.videoId}`);
   player.loadVideoById(video.ytData.videoId);
   player.playVideo();
+  if (video.show) {
+    showVideo()
+  }
   delete videos[video.id];
 
   console.log(videos);
