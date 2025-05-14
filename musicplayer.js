@@ -343,6 +343,7 @@ function onPlayerStateChange(event) {
 
 function onPlayerReady(event) {
   event.target.setPlaybackQuality('small');
+  event.target.setVolume(50);
 }
 
 function getVideoList() {
