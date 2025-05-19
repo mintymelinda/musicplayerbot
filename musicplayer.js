@@ -10,6 +10,7 @@ var player;
 var playing = false;
 var MIN_VIEW_COUNT = 1;
 var vetoCount = new Set()
+var current_song_redeemer;
 
 const SONG_REDEMPTION_PROMPT = 'Enter youtube id or song / artist name';
 const SONG_REDEMPTION_TITLE = "Add a song request";
@@ -19,6 +20,8 @@ const SNOW_COST = 10;
 const QUEUE_COST = 10;
 const VETO_THRESHOLD = 3;
 const VETO_COST = 10;
+const VOLUME_INCREMENT = 10;
+const MAX_TIMEOUT_TWTICH = 1209600;
 
 class CustomRewards {
   constructor(rewards) {
@@ -90,7 +93,7 @@ var custom_rewards = new CustomRewards([
   new CustomReward('Queue length', QUEUE_COST, false, undefined, false,
     () => {
       if (playing) {
-        duration = player.getDuration() - player.getCurrentTime()
+        duration = time_remaining()
         getVideoList().forEach(x => duration = duration + x.ytData.duration)
         message = `There are ${getVideoList().length} songs in the queue [${durationString(duration)}]`
 
@@ -131,15 +134,60 @@ var custom_rewards = new CustomRewards([
       showVideo()
     }),
   new CustomReward('Volume UP', 30, false, "Mindy it's too QUIET please turn it up", true, () => change_volume(true)),
-  new CustomReward('Volume DOWN', 30, false, "Mindy it's too LOUD please turn it down", true, () => change_volume(false))
+  new CustomReward('Volume DOWN', 30, false, "Mindy it's too LOUD please turn it down", true, () => change_volume(false)),
+  new CustomReward('Timeout song requester for bad song', 25000, false, "Was it really that bad?", false, () => timeout_current_song_requester())
 ]);
+
+function timeout_current_song_requester() {
+
+  if (!playing) {
+    sendMessage(`Nothing playing samusShrug`)
+    return
+  }
+
+  // get the remaining duration
+  var remaining_duration = parseInt(time_remaining())
+
+  if (remaining_duration < 1) {
+    return
+  } else if (remaining_duration > MAX_TIMEOUT_TWTICH) {
+    remaining_duration = MAX_TIMEOUT_TWTICH
+  }
+  // timeout user for the remaining duration of the current song
+  timeout_user(current_song_redeemer, remaining_duration)
+
+  // skip current song
+  skipSong()
+}
+
+function timeout_user(id, remaining_duration) {
+  fetch('https://api.twitch.tv/helix/moderation/bans?' + new URLSearchParams({
+    broadcaster_id: BROADCASTER_USER_ID,
+    moderator_id: BROADCASTER_USER_ID
+  }), {
+    method: 'POST',
+    body: JSON.stringify({
+      data: {
+        user_id: id,
+        duration: remaining_duration,
+        reason: "Must have requested a really annoying song"
+      }
+    }),
+    headers: headers
+  })
+}
+
+function time_remaining() {
+  return player.getDuration() - player.getCurrentTime()
+}
+
 
 function change_volume(up) {
   var volume = player.getVolume()
   if (up)
-    volume = Math.min(100, volume + 5)
+    volume = Math.min(100, volume + VOLUME_INCREMENT)
   else
-    volume = Math.max(0, volume - 5)
+    volume = Math.max(0, volume - VOLUME_INCREMENT)
 
   player.setVolume(volume)
   sendMessage("YouTube volume is " + volume + "%")
@@ -216,6 +264,7 @@ class VideoRequest {
     this.id = event.id;
     this.rewardId = event.reward.id;
     this.redeemedAt = event.redeemed_at;
+    this.user_id = event.user_id
     this.ytData = ytData;
     this.show = show;
   }
@@ -343,7 +392,7 @@ function onPlayerStateChange(event) {
 
 function onPlayerReady(event) {
   event.target.setPlaybackQuality('small');
-  event.target.setVolume(50);
+  event.target.setVolume(35);
 }
 
 function getVideoList() {
@@ -360,7 +409,9 @@ function update() {
 }
 
 function loadNextVideo() {
-  var video = getVideoList()[0];
+  video = getVideoList()[0];
+
+  current_song_redeemer = video.user_id
 
   console.log(`${video.ytData.videoId}`);
   player.loadVideoById(video.ytData.videoId);
