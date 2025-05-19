@@ -20,7 +20,7 @@ const SNOW_COST = 10;
 const QUEUE_COST = 10;
 const VETO_THRESHOLD = 3;
 const VETO_COST = 10;
-const VOLUME_INCREMENT = 10;
+const VOLUME_INCREMENT = 5;
 const MAX_TIMEOUT_TWTICH = 1209600;
 
 class CustomRewards {
